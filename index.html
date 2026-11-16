@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockScope AI</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080e1b;color:#edf3ff;font-family:Arial,sans-serif}
+header{padding:20px;background:#101b2e;border-bottom:1px solid #26364f}
+h1{margin:0;font-size:25px}
+p{color:#9fb0c8;line-height:1.5}
+main{max-width:1300px;margin:auto;padding:15px}
+.panel{background:#111c30;border:1px solid #293a55;border-radius:15px;padding:16px;margin-bottom:16px}
+h3{margin:0 0 13px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+button,input{background:#1b2b45;color:white;border:1px solid #3b5273;border-radius:9px;padding:11px;font-size:14px}
+button{cursor:pointer}
+button.active{background:#2563eb;border-color:#60a5fa}
+input{width:100%;font-size:16px}
+.search{position:relative;max-width:450px}
+#suggestions{position:absolute;top:100%;left:0;right:0;background:#1a2941;border:1px solid #405677;border-radius:9px;z-index:10;max-height:260px;overflow:auto}
+.suggestion{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #34465f;border-radius:0}
+.suggestion:hover{background:#29466d}
+#chart{height:550px;background:#0b1424;border-radius:10px;overflow:hidden}
+#status{color:#aabbd2;font-size:13px}
+a{color:#83b8ff}
+small{color:#9fb0c8}
+@media(max-width:600px){#chart{height:470px}}
+</style>
+</head>
+<body>
+<header>
+<h1>📈 StockScope AI</h1>
+<p>Search stocks, explore markets and study charts.</p>
+</header>
+<main>
+<section class="panel">
+<h3>Markets</h3>
+<div class="row" id="categories"></div>
+<h3>Find a stock or asset</h3>
+<div class="search">
+<input id="search" placeholder="Search Apple, NVIDIA, AAPL..." autocomplete="off">
+<div id="suggestions" hidden></div>
+</div>
+<div class="row">
+<button onclick="loadFromSearch()">Load Chart</button>
+</div>
+<h3>Popular assets</h3>
+<div class="row" id="popular"></div>
+<h3>Timeframe</h3>
+<div class="row" id="timeframes"></div>
+<div id="status"></div>
+</section>
+<section class="panel">
+<h3 id="chartTitle">Market Chart</h3>
+<div id="chart"></div>
+<p><a id="external" href="https://www.tradingview.com/chart/" target="_blank" rel="noopener noreferrer">Open full chart on TradingView</a></p>
+</section>
+<section class="panel">
+<h3>AI Analysis</h3>
+<p>Coming in a future update: technical indicators, news context, trend explanations and experimental forecasts.</p>
+<p>This version does not produce AI predictions or buy/sell signals.</p>
+</section>
+<footer>
+<small>Educational purposes only. Market data may be delayed. Chart availability depends on TradingView.</small>
+</footer>
+</main>
+<script>
+const markets={
+Stocks:[
+["Apple","NASDAQ:AAPL"],
+["NVIDIA","NASDAQ:NVDA"],
+["Tesla","NASDAQ:TSLA"],
+["Microsoft","NASDAQ:MSFT"],
+["Amazon","NASDAQ:AMZN"],
+["Alphabet","NASDAQ:GOOGL"],
+["Meta","NASDAQ:META"],
+["AMD","NASDAQ:AMD"],
+["Palantir","NASDAQ:PLTR"],
+["Netflix","NASDAQ:NFLX"]
+],
+ETFs:[
+["SPY","AMEX:SPY"],
+["QQQ","NASDAQ:QQQ"],
+["VOO","AMEX:VOO"],
+["GLD","AMEX:GLD"]
+],
+Crypto:[
+["Bitcoin","BITSTAMP:BTCUSD"],
+["Ethereum","BITSTAMP:ETHUSD"],
+["Solana","COINBASE:SOLUSD"],
+["XRP","BITSTAMP:XRPUSD"]
+],
+Forex:[
+["EUR/USD","FX:EURUSD"],
+["GBP/USD","FX:GBPUSD"],
+["USD/JPY","FX:USDJPY"]
+],
+Commodities:[
+["Gold","TVC:GOLD"],
+["Silver","TVC:SILVER"],
+["Oil","TVC:USOIL"]
+],
+Indices:[
+["S&P 500","SP:SPX"],
+["Nasdaq 100","NASDAQ:NDX"],
+["Dow Jones","DJ:DJI"]
+],
+Futures:[
+["S&P Futures","CME_MINI:ES1!"],
+["Nasdaq Futures","CME_MINI:NQ1!"],
+["Gold Futures","COMEX:GC1!"]
+]
+};
+const aliases={
+AAPL:"NASDAQ:AAPL",
+NVDA:"NASDAQ:NVDA",
+TSLA:"NASDAQ:TSLA",
+MSFT:"NASDAQ:MSFT",
+AMZN:"NASDAQ:AMZN",
+GOOGL:"NASDAQ:GOOGL",
+META:"NASDAQ:META",
+AMD:"NASDAQ:AMD",
+PLTR:"NASDAQ:PLTR",
+NFLX:"NASDAQ:NFLX",
+SPY:"AMEX:SPY",
+QQQ:"NASDAQ:QQQ",
+VOO:"AMEX:VOO",
+BTC:"BITSTAMP:BTCUSD",
+BTCUSD:"BITSTAMP:BTCUSD",
+ETH:"BITSTAMP:ETHUSD",
+ETHUSD:"BITSTAMP:ETHUSD"
+};
+const frames=[
+["1m","1"],["5m","5"],["15m","15"],
+["1h","60"],["4h","240"],["1D","D"],["1W","W"]
+];
+let category="Stocks";
+let interval="D";
+let current="NASDAQ:AAPL";
+const search=document.getElementById("search");
+const suggestions=document.getElementById("suggestions");
+const status=document.getElementById("status");
+const allAssets=Object.values(markets).flat();
+function chooseCategory(name){
+category=name;
+const box=document.getElementById("categories");
+box.innerHTML="";
+Object.keys(markets).forEach(c=>{
+const b=document.createElement("button");
+b.textContent=c;
+b.className=c===name?"active":"";
+b.onclick=()=>chooseCategory(c);
+box.appendChild(b);
+});
+const popular=document.getElementById("popular");
+popular.innerHTML="";
+markets[name].forEach(([label,ticker])=>{
+const b=document.createElement("button");
+b.textContent=label;
+b.onclick=()=>selectTicker(ticker);
+popular.appendChild(b);
+});
+selectTicker(markets[name][0][1]);
+}
+function chooseFrame(value){
+interval=value;
+const box=document.getElementById("timeframes");
+box.innerHTML="";
+frames.forEach(([label,v])=>{
+const b=document.createElement("button");
+b.textContent=label;
+b.className=v===interval?"active":"";
+b.onclick=()=>chooseFrame(v);
+box.appendChild(b);
+});
+loadChart();
+}
+function selectTicker(ticker){
+current=ticker;
+search.value=ticker;
+suggestions.hidden=true;
+loadChart();
+}
+function showSuggestions(){
+const q=search.value.trim().toLowerCase();
+suggestions.innerHTML="";
+if(!q){suggestions.hidden=true;return}
+const matches=allAssets.filter(([name,ticker])=>
+name.toLowerCase().includes(q)||
+ticker.toLowerCase().includes(q)
+).slice(0,12);
+matches.forEach(([name,ticker])=>{
+const b=document.createElement("button");
+b.className="suggestion";
+b.textContent=name+" — "+ticker;
+b.onclick=()=>selectTicker(ticker);
+suggestions.appendChild(b);
+});
+suggestions.hidden=matches.length===0;
+}
+function loadFromSearch(){
+const q=search.value.trim();
+if(!q)return;
+const match=allAssets.find(([name,ticker])=>
+name.toLowerCase()===q.toLowerCase()||
+ticker.toLowerCase()===q.toLowerCase()
+);
+current=match?match[1]:(aliases[q.toUpperCase()]||q.toUpperCase());
+suggestions.hidden=true;
+loadChart();
+}
+function loadChart(){
+const ticker=current;
+document.getElementById("chartTitle").textContent=ticker+" Chart";
+const holder=document.getElementById("chart");
+holder.innerHTML="";
+const container=document.createElement("div");
+container.className="tradingview-widget-container";
+container.style.height="100%";
+container.style.width="100%";
+const widget=document.createElement("div");
+widget.className="tradingview-widget-container__widget";
+widget.style.height="100%";
+widget.style.width="100%";
+container.appendChild(widget);
+const script=document.createElement("script");
+script.src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+script.async=true;
+script.textContent=JSON.stringify({
+autosize:true,
+symbol:ticker,
+interval:interval,
+timezone:"Etc/UTC",
+theme:"dark",
+style:"1",
+locale:"en",
+allow_symbol_change:true,
+calendar:false,
+support_host:"https://www.tradingview.com"
+});
+container.appendChild(script);
+holder.appendChild(container);
+document.getElementById("external").href=
+"https://www.tradingview.com/chart/?symbol="+encodeURIComponent(ticker);
+status.textContent="Selected: "+ticker+" | Timeframe: "+interval+
+". If the chart stays blank, open it on TradingView below.";
+}
+search.addEventListener("input",showSuggestions);
+search.addEventListener("keydown",e=>{
+if(e.key==="Enter")loadFromSearch();
+});
+chooseFrame("D");
+chooseCategory("Stocks");
+</script>
+</body>
+</html>
